@@ -1,7 +1,7 @@
 // ================= CONFIG =================
 const CHANNELS = {
   asports: {
-    source: "https://tvsen6.aynascope.net/asports/index.m3u8"
+    source: "http://210.4.72.204/hls-live/livepkgr/_definst_/liveevent/livestream3.m3u8"
   }
 };
 
