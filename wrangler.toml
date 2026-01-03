@@ -1,4 +1,4 @@
-name = "hridoytv"
+name = "hridoytv-proxy"
 main = "worker.js"
 compatibility_date = "2025-11-13"
 
