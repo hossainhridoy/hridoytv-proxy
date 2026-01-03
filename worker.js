@@ -1,68 +1,69 @@
 // ================= CONFIG =================
 const CHANNELS = {
   asports: {
-    base: "https://tvsen6.aynascope.net/asports/index.m3u8",
-    tokenApi: "https://tvsen6.aynascope.net/asports/index.m3u8"
+    source: "https://tvsen6.aynascope.net/asports/index.m3u8"
   }
 };
 
-// In-memory token cache
 let tokenCache = {};
 
 // ================= WORKER =================
 export default {
   async fetch(req) {
     const url = new URL(req.url);
-    const path = url.pathname.replace("/", "");
+    const path = url.pathname;
 
+    // Preflight
     if (req.method === "OPTIONS") {
       return new Response(null, { headers: cors() });
     }
 
-    // Playlist
+    // Debug root
+    if (path === "/") {
+      return new Response(
+        "HridoyTV Proxy is running",
+        { headers: cors() }
+      );
+    }
+
+    // Playlist: /asports.m3u8
     if (path.endsWith(".m3u8")) {
-      const name = path.replace(".m3u8", "");
+      const name = path.replace("/", "").replace(".m3u8", "");
       if (!CHANNELS[name]) return notFound();
 
       const realUrl = await getFreshUrl(name);
       return proxyPlaylist(realUrl, url.origin);
     }
 
-    // Segments / keys
-    if (url.searchParams.get("u")) {
-      return proxyBinary(url.searchParams.get("u"));
+    // Segments & keys: /seg?u=
+    if (path === "/seg") {
+      const target = url.searchParams.get("u");
+      if (!target) return notFound();
+      return proxyBinary(target);
     }
 
     return notFound();
   }
 };
 
-// ================= TOKEN LOGIC =================
+// ================= TOKEN =================
 async function getFreshUrl(name) {
-  const cached = tokenCache[name];
   const now = Date.now() / 1000;
 
-  if (cached && cached.expiry > now + 30) {
-    return cached.url;
+  if (tokenCache[name] && tokenCache[name].exp > now + 30) {
+    return tokenCache[name].url;
   }
 
-  // Fetch new token (HEAD/GET)
-  const res = await fetch(CHANNELS[name].tokenApi, {
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-      "Referer": CHANNELS[name].base
-    },
-    redirect: "follow"
+  const res = await fetch(CHANNELS[name].source, {
+    headers: defaultHeaders()
   });
 
   const finalUrl = res.url;
-
-  // extract expiry param e=
-  const e = new URL(finalUrl).searchParams.get("e") || (now + 300);
+  const exp = new URL(finalUrl).searchParams.get("e") || (now + 300);
 
   tokenCache[name] = {
     url: finalUrl,
-    expiry: Number(e)
+    exp: Number(exp)
   };
 
   return finalUrl;
@@ -70,10 +71,14 @@ async function getFreshUrl(name) {
 
 // ================= PLAYLIST =================
 async function proxyPlaylist(target, origin) {
-  const res = await fetch(target);
+  const res = await fetch(target, {
+    headers: defaultHeaders()
+  });
+
   let text = await res.text();
 
-  text = text.replace(/(https?:\/\/[^\s]+)/g, m =>
+  // rewrite all absolute URLs
+  text = text.replace(/https?:\/\/[^\s"]+/g, m =>
     `${origin}/seg?u=${encodeURIComponent(m)}`
   );
 
@@ -87,17 +92,29 @@ async function proxyPlaylist(target, origin) {
 
 // ================= SEGMENTS =================
 async function proxyBinary(target) {
-  const res = await fetch(target);
+  const res = await fetch(target, {
+    headers: defaultHeaders()
+  });
+
   return new Response(res.body, {
     status: res.status,
     headers: {
       ...cors(),
-      "Content-Type": res.headers.get("Content-Type") || "application/octet-stream"
+      "Content-Type":
+        res.headers.get("Content-Type") ||
+        "application/octet-stream"
     }
   });
 }
 
 // ================= UTILS =================
+function defaultHeaders() {
+  return {
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "https://tvsen6.aynascope.net/"
+  };
+}
+
 function cors() {
   return {
     "Access-Control-Allow-Origin": "*",
