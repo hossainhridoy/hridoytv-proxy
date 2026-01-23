@@ -3,10 +3,12 @@ export default {
     const url = new URL(req.url);
     const path = url.pathname.split("/").filter(Boolean);
 
-    /* ---------- BASE64 ---------- */
-    const b64e = s => btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    /* ---------- BASE64 URL SAFE ---------- */
+    const b64e = s =>
+      btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
     const b64d = s => {
-      s = s.replace(/-/g,"+").replace(/_/g,"/");
+      s = s.replace(/-/g, "+").replace(/_/g, "/");
       while (s.length % 4) s += "=";
       return atob(s);
     };
@@ -14,7 +16,8 @@ export default {
     /* ---------- ALLOWED REFERER ---------- */
     const ALLOWED = [
       "https://hridoytv.4mel.com",
-      "https://hridoytv.vercel.app"
+      "https://hridoytv.vercel.app",
+      "http://localhost"
     ];
 
     const checkRef = () => {
@@ -22,17 +25,20 @@ export default {
       return ALLOWED.some(d => r.startsWith(d));
     };
 
-    /* ---------- CHANNELS ---------- */
+    /* ---------- CHANNEL LIST ---------- */
     const CHANNELS = {
       "nagorik-tv": "http://116.204.149.16/nagorik/index.m3u8",
       "tsports": "http://cdnd.sonyplex.com:8090/hls/tsportshd.m3u8"
     };
 
-    /* ---------- SEGMENT ---------- */
+    /* ---------- SEGMENT PROXY ---------- */
     if (path[0] === "seg") {
       let target;
-      try { target = b64d(path[1]); }
-      catch { return new Response("Bad segment", {status:400}); }
+      try {
+        target = b64d(path[1]);
+      } catch {
+        return new Response("Invalid segment", { status: 400 });
+      }
 
       const range = req.headers.get("Range");
 
@@ -54,15 +60,16 @@ export default {
       });
     }
 
-    /* ---------- PLAYLIST ---------- */
+    /* ---------- PLAYLIST PROXY ---------- */
     if (path[0] === "channel") {
       if (!checkRef())
-        return new Response("Access Blocked", {status:403});
+        return new Response("Access Blocked", { status: 403 });
 
-      const up = CHANNELS[path[1]];
-      if (!up) return new Response("Channel Not Found", {status:404});
+      const upstream = CHANNELS[path[1]];
+      if (!upstream)
+        return new Response("Channel Not Found", { status: 404 });
 
-      const r = await fetch(up, {
+      const r = await fetch(upstream, {
         headers: {
           "User-Agent": "Mozilla/5.0",
           "Accept": "application/vnd.apple.mpegurl",
@@ -72,10 +79,15 @@ export default {
 
       const text = await r.text();
 
-      const out = text.split(/\r?\n/).map(l=>{
-        if (!l || l.startsWith("#")) return l;
-        return `${url.origin}/seg/${b64e(new URL(l, up))}`;
-      }).join("\n");
+      const out = text
+        .split(/\r?\n/)
+        .map(line => {
+          if (!line || line.startsWith("#")) return line;
+          return `${url.origin}/seg/${b64e(
+            new URL(line, upstream).toString()
+          )}`;
+        })
+        .join("\n");
 
       return new Response(out, {
         headers: {
@@ -85,6 +97,9 @@ export default {
       });
     }
 
-    return new Response("HridoyProxy is running");
+    /* ---------- HOME ---------- */
+    return new Response("HridoyProxy is running", {
+      headers: { "content-type": "text/plain" }
+    });
   }
 };
